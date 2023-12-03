@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
 	"github.com/zalando/go-keyring"
 )
@@ -22,15 +24,6 @@ type model struct {
 
 // Implement the tea.Model interface for model
 func (m model) Init() tea.Cmd {
-	service := "crowdlog-aicommit"
-	user := "anon"
-
-	secret, err := keyring.Get(service, user)
-	if err != nil {
-		m.hasOpenAIKey = false
-	}
-	println("OpenAI key:", secret)
-	m.openAISecret = secret
 
 	return textinput.Blink
 }
@@ -41,8 +34,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 
-		switch msg.String() {
-		case "esc", "ctrl+c", "q":
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyEsc:
 			println("Exiting...")
 			return m, tea.Quit
 		}
@@ -56,21 +49,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if !m.hasOpenAIKey {
-		m.openAIKeyInput, cmd = m.openAIKeyInput.Update(msg)
 		if m.openAIKeyInput.Value() != "" {
 			switch msg := msg.(type) {
+
 			case tea.KeyMsg:
-				switch msg.String() {
-				case "enter":
+				switch msg.Type {
+
+				case tea.KeyEnter:
 					println("Saving OpenAI key...")
 					err := keyring.Set("crowdlog-aicommit", "anon", m.openAIKeyInput.Value())
 					if err != nil {
 						println("Error saving OpenAI key:", err)
 					}
+					m.hasOpenAIKey = true
+					return m, cmd
 				}
 			}
 		}
 	}
+
+	if m.hasOpenAIKey {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.Type {
+			case tea.KeyEnter:
+				println("Generating commit message...")
+
+				commitMsg, err := runAICommit(m)
+				if err != nil {
+					println("Error generating commit message:", err)
+				}
+				m.commitMessage = commitMsg
+				return m, cmd
+			}
+		}
+	}
+	m.openAIKeyInput, cmd = m.openAIKeyInput.Update(msg)
 
 	return m, cmd
 }
@@ -81,10 +95,24 @@ func initialModel() model {
 	ti.Focus()
 	ti.CharLimit = 156
 	ti.Width = 20
+	service := "crowdlog-aicommit"
+	user := "anon"
 
+	var hasKey = false
+
+	secret, err := keyring.Get(service, user)
+	if err != nil {
+		hasKey = false
+		return model{
+			openAIKeyInput: ti,
+			hasOpenAIKey:   hasKey,
+		}
+	}
+	println("secret: ", secret)
 	return model{
 		openAIKeyInput: ti,
-		hasOpenAIKey:   false,
+		hasOpenAIKey:   true,
+		openAISecret:   secret,
 	}
 }
 
@@ -94,7 +122,6 @@ func (m model) View() string {
 	if m.errMsg != nil {
 		return fmt.Sprintf("Error: %s", m.errMsg.Error())
 	}
-	println("hasOpenAIKey:", m.hasOpenAIKey)
 
 	if !m.hasOpenAIKey {
 		return fmt.Sprintf(
@@ -115,35 +142,34 @@ func main() {
 	var cmdAICommit = &cobra.Command{
 		Use:   "aicommit",
 		Short: "Generate commit message using AI",
-		Run:   runAICommit,
+		Run:   runTea,
 	}
 
 	rootCmd.AddCommand(cmdAICommit)
 	rootCmd.Execute()
 }
 
-func runAICommit(cmd *cobra.Command, args []string) {
-
-	gitDiff, err := getGitDiff()
-	println("getting git diff")
-	if err != nil {
-		fmt.Println("Error fetching git diff:", err)
-		return
-	}
-
-	// Placeholder for OpenAI API call
-	commitMsg, err := generateCommitMessageUsingAI(gitDiff)
-	fmt.Printf("Commit Message: %s\n", commitMsg)
-	if err != nil {
-		fmt.Println("Error generating commit message:", err)
-		return
-	}
-
+func runTea(cmd *cobra.Command, args []string) {
 	p := tea.NewProgram(initialModel())
 	if _, err := p.Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		return
 	}
+}
+
+func runAICommit(m model) (string, error) {
+	gitDiff, err := getGitDiff()
+	println("getting git diff")
+	if err != nil {
+		fmt.Println("Error fetching git diff:", err)
+		return "", err
+	}
+
+	commitMsg, err := generateCommitMessageUsingAI(gitDiff, m.openAISecret)
+	if err != nil {
+		return "", err
+	}
+	return commitMsg, nil
 }
 
 func getGitDiff() (string, error) {
@@ -155,25 +181,26 @@ func getGitDiff() (string, error) {
 	return string(output), nil
 }
 
-func generateCommitMessageUsingAI(gitDiff string) (string, error) {
-	// client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
-	// resp, err := client.CreateChatCompletion(
-	// 	context.Background(),
-	// 	openai.ChatCompletionRequest{
-	// 		Model: openai.GPT3Dot5Turbo,
-	// 		Messages: []openai.ChatCompletionMessage{
-	// 			{
-	// 				Role:    openai.ChatMessageRoleSystem,
-	// 				Content: "This is a commit message generator. Use conventional commits to describe your changes. ",
-	// 			},
-	// 		},
-	// 	},
-	// )
-	// if err != nil {
-	// 	fmt.Printf("Error: %s\n", err.Error())
-	// 	return "", err
-	// }
+func generateCommitMessageUsingAI(gitDiff string, key string) (string, error) {
+	println("generating commit message using AI")
 
-	// return resp.Choices[0].Message.Content, nil
-	return "", nil
+	client := openai.NewClient(key)
+	resp, err := client.CreateChatCompletion(
+		context.Background(),
+		openai.ChatCompletionRequest{
+			Model: openai.GPT3Dot5Turbo,
+			Messages: []openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: "This is a commit message generator. Use conventional commits to describe your changes. ",
+				},
+			},
+		},
+	)
+	if err != nil {
+		fmt.Printf("Error: %s\n", err.Error())
+		return "", err
+	}
+
+	return resp.Choices[0].Message.Content, nil
 }
