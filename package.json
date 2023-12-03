@@ -1,0 +1,10 @@
+{
+  "scripts": {
+    "watch": "bun --watch run build.ts "
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.2",
+    "bun-types": "^1.0.15",
+    "chokidar": "^3.5.3"
+  }
+}

@@ -13,10 +13,11 @@ import (
 // Define the model struct which includes the Bubbletea model elements
 type model struct {
 	openAIKeyInput textinput.Model
+	openAISecret   string
 	gitDiff        string
 	commitMessage  string
 	errMsg         error
-	hasKey         bool
+	hasOpenAIKey   bool
 }
 
 // Implement the tea.Model interface for model
@@ -26,32 +27,50 @@ func (m model) Init() tea.Cmd {
 
 	secret, err := keyring.Get(service, user)
 	if err != nil {
-
+		m.hasOpenAIKey = false
 	}
-
-	println(secret, "angelo")
+	println("OpenAI key:", secret)
+	m.openAISecret = secret
 
 	return textinput.Blink
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC {
+
+		switch msg.String() {
+		case "esc", "ctrl+c", "q":
 			println("Exiting...")
 			return m, tea.Quit
 		}
-		if msg.String() == "c" {
-			gitdiff, err := getGitDiff()
-			println("getting git diff")
-			if err != nil {
-				println(gitdiff)
+		// if msg.String() == "c" {
+		// 	gitdiff, err := getGitDiff()
+		// 	println("getting git diff")
+		// 	if err != nil {
+		// 		println(gitdiff)
+		// 	}
+		// }
+	}
+
+	if !m.hasOpenAIKey {
+		m.openAIKeyInput, cmd = m.openAIKeyInput.Update(msg)
+		if m.openAIKeyInput.Value() != "" {
+			switch msg := msg.(type) {
+			case tea.KeyMsg:
+				switch msg.String() {
+				case "enter":
+					println("Saving OpenAI key...")
+					err := keyring.Set("crowdlog-aicommit", "anon", m.openAIKeyInput.Value())
+					if err != nil {
+						println("Error saving OpenAI key:", err)
+					}
+				}
 			}
 		}
 	}
-
-	m.openAIKeyInput, cmd = m.openAIKeyInput.Update(msg)
 
 	return m, cmd
 }
@@ -65,7 +84,7 @@ func initialModel() model {
 
 	return model{
 		openAIKeyInput: ti,
-		hasKey:         false,
+		hasOpenAIKey:   false,
 	}
 }
 
@@ -75,7 +94,9 @@ func (m model) View() string {
 	if m.errMsg != nil {
 		return fmt.Sprintf("Error: %s", m.errMsg.Error())
 	}
-	if !m.hasKey {
+	println("hasOpenAIKey:", m.hasOpenAIKey)
+
+	if !m.hasOpenAIKey {
 		return fmt.Sprintf(
 			"No OpenAI key detected. Please enter it below:\n\n%s\n\n%s",
 			m.openAIKeyInput.View(),

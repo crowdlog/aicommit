@@ -1,0 +1,16 @@
+{
+	"compilerOptions": {
+		"strict": true,
+    "moduleResolution": "node",
+		"types": ["bun-types"],
+		"module": "ESNext",
+		"target": "es2021",
+		"lib": ["ESNext"],
+		"outDir": "out",
+		"rootDir": ".",
+		"sourceMap": true
+	},
+	"include": [
+		".",
+	],
+}
