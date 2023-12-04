@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
+	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
@@ -17,18 +21,19 @@ type model struct {
 	openAIKeyInput textinput.Model
 	openAISecret   string
 	gitDiff        string
-	commitMessage  string
+	commitMessage  strings.Builder
 	errMsg         error
 	hasOpenAIKey   bool
+	viewport       viewport.Model
 }
 
 // Implement the tea.Model interface for model
-func (m model) Init() tea.Cmd {
+func (m *model) Init() tea.Cmd {
 
 	return textinput.Blink
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
@@ -75,19 +80,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case tea.KeyEnter:
 				println("Generating commit message...")
 
-				commitMsg, err := runAICommit(m)
-				if err != nil {
-					println("Error generating commit message:", err)
-				}
-				m.commitMessage = commitMsg
+				cmd = someCmd(m)
 				return m, cmd
 			}
+		case tickMsg:
+			println(m.commitMessage.String(), "angelo")
+			m.viewport.SetContent(m.commitMessage.String())
+			m.viewport.GotoBottom()
 		}
+
 	}
 	m.openAIKeyInput, cmd = m.openAIKeyInput.Update(msg)
 
 	return m, cmd
 }
+
+type tickMsg time.Time
 
 func initialModel() model {
 	ti := textinput.New()
@@ -116,7 +124,7 @@ func initialModel() model {
 	}
 }
 
-func (m model) View() string {
+func (m *model) View() string {
 	tea.LogToFile("log.txt", "hello")
 	// Implement the logic to render the view based on the model state
 	if m.errMsg != nil {
@@ -130,7 +138,7 @@ func (m model) View() string {
 			"(esc to quit)",
 		) + "\n"
 	}
-	return fmt.Sprintf("Commit Message testing: %s\n", m.commitMessage)
+	return fmt.Sprintf("Commit Message testing: %s\n", m.commitMessage.String())
 }
 
 func main() {
@@ -150,26 +158,21 @@ func main() {
 }
 
 func runTea(cmd *cobra.Command, args []string) {
-	p := tea.NewProgram(initialModel())
+	m := initialModel()
+	p := tea.NewProgram(&m)
+	go func() {
+		for c := range time.Tick(20 * time.Millisecond) {
+			if m.commitMessage.String() != "" {
+				return
+			}
+			p.Send(tickMsg(c))
+		}
+	}()
 	if _, err := p.Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		return
 	}
-}
 
-func runAICommit(m model) (string, error) {
-	gitDiff, err := getGitDiff()
-	println("getting git diff")
-	if err != nil {
-		fmt.Println("Error fetching git diff:", err)
-		return "", err
-	}
-
-	commitMsg, err := generateCommitMessageUsingAI(gitDiff, m.openAISecret)
-	if err != nil {
-		return "", err
-	}
-	return commitMsg, nil
 }
 
 func getGitDiff() (string, error) {
@@ -181,26 +184,64 @@ func getGitDiff() (string, error) {
 	return string(output), nil
 }
 
-func generateCommitMessageUsingAI(gitDiff string, key string) (string, error) {
-	println("generating commit message using AI")
+func generateCommitMessageUsingAI(gitDiff string, m *model) (openai.ChatCompletionStream, error) {
+	println("generating commit message using AI. gitdiff:", gitDiff)
 
-	client := openai.NewClient(key)
-	resp, err := client.CreateChatCompletion(
+	client := openai.NewClient(m.openAISecret)
+	resp, err := client.CreateChatCompletionStream(
 		context.Background(),
 		openai.ChatCompletionRequest{
 			Model: openai.GPT3Dot5Turbo,
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleSystem,
-					Content: "This is a commit message generator. Use conventional commits to describe your changes. ",
+					Content: "This is a commit message generator. Generate short commit messages. Use conventional commits to describe your changes. ",
+				},
+				{
+					Role:    openai.ChatMessageRoleUser,
+					Content: gitDiff,
 				},
 			},
 		},
 	)
 	if err != nil {
-		fmt.Printf("Error: %s\n", err.Error())
-		return "", err
+		return openai.ChatCompletionStream{}, err
 	}
+	return *resp, err
+}
 
-	return resp.Choices[0].Message.Content, nil
+func someCmd(m *model) tea.Cmd {
+
+	return func() tea.Msg {
+		gitDiff, err := getGitDiff()
+		if err != nil {
+			println("Error getting git diff:", err)
+			return nil
+		}
+
+		resp, err := generateCommitMessageUsingAI(gitDiff, m)
+		if err != nil {
+			println("Error generating commit message using AI:", err)
+			return nil
+		}
+
+		for {
+			resp, recvErr := resp.Recv()
+			if recvErr == io.EOF {
+				// End of the stream
+				break
+			}
+			if recvErr != nil {
+				println("Error receiving response:", recvErr)
+				return nil
+			}
+
+			// Assuming the response has a field that contains the message part
+			m.commitMessage.Write([]byte(resp.Choices[0].Delta.Content))
+			// println("commit message: ", m.commitMessage)
+
+		}
+
+		return nil
+	}
 }
