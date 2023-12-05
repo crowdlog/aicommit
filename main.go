@@ -26,9 +26,9 @@ type TerminalSize struct {
 
 // Define the model struct which includes the Bubbletea model elements
 type model struct {
+	ready          bool
 	openAIKeyInput textinput.Model
 	openAISecret   string
-	gitDiff        string
 	commitMessage  strings.Builder
 	errMsg         error
 	hasOpenAIKey   bool
@@ -40,8 +40,7 @@ type model struct {
 
 // Implement the tea.Model interface for model
 func (m *model) Init() tea.Cmd {
-
-	return textinput.Blink
+	return tea.Batch(textinput.Blink, m.spinner.Tick)
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -49,9 +48,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.ready = false
+		var prevContent = m.viewport.View()
+		m.viewport.SetContent("")
 		m.terminalSize.Width = msg.Width
 		m.terminalSize.Height = msg.Height
-		println("width: ", m.terminalSize.Width)
+		m.viewport.SetContent(prevContent)
+		m.ready = true
 		return m, nil
 	case tea.KeyMsg:
 
@@ -75,6 +78,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if err != nil {
 						println("Error saving OpenAI key:", err)
 					}
+					m.openAISecret = m.openAIKeyInput.Value()
 					m.hasOpenAIKey = true
 					return m, cmd
 				}
@@ -96,7 +100,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 	}
-	m.openAIKeyInput, cmd = m.openAIKeyInput.Update(msg)
+	var openAIKeyInputCmd tea.Cmd
+	var spinnerCmd tea.Cmd
+	m.openAIKeyInput, openAIKeyInputCmd = m.openAIKeyInput.Update(msg)
+	m.spinner, spinnerCmd = m.spinner.Update(msg)
+	cmd = tea.Batch(openAIKeyInputCmd, spinnerCmd)
 
 	return m, cmd
 }
@@ -117,7 +125,6 @@ func initialModel() model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("69"))
-
 	secret, err := keyring.Get(service, user)
 	if err != nil {
 		hasKey = false
@@ -126,20 +133,24 @@ func initialModel() model {
 			hasOpenAIKey:   hasKey,
 			spinner:        s,
 			terminalSize:   TerminalSize{Width: 0, Height: 0},
+			ready:          false,
 		}
 	}
-	println("secret: ", secret)
 	return model{
 		openAIKeyInput: ti,
 		hasOpenAIKey:   true,
 		openAISecret:   secret,
 		spinner:        s,
 		terminalSize:   TerminalSize{Width: 0, Height: 0},
+		ready:          false,
 	}
 }
 
 func (m *model) View() string {
-	tea.LogToFile("log.txt", "hello")
+
+	if !m.ready {
+		return "Initializing..."
+	}
 	// Implement the logic to render the view based on the model state
 	if m.errMsg != nil {
 		return fmt.Sprintf("Error: %s", m.errMsg.Error())
@@ -153,18 +164,25 @@ func (m *model) View() string {
 		) + "\n"
 	}
 
-	var helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Width(m.terminalSize.Width).Height(m.terminalSize.Height)
+	var helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Width(m.terminalSize.Width)
 
 	if m.isFetching {
-		return fmt.Sprintf(
-			"%s, %s", m.spinner.View(), helpStyle.Render(m.commitMessage.String()),
-		)
+		return helpStyle.Render(fmt.Sprintf(
+			"%s | %s", m.spinner.View(), m.commitMessage.String(),
+		))
 	}
 
-	return fmt.Sprintf("Commit Message: %s\n", helpStyle.Render(wordwrap.String(m.commitMessage.String(), m.terminalSize.Width)))
+	if m.commitMessage.String() == "" {
+		return helpStyle.Render(fmt.Sprintf(
+			"Press enter to generate commit message",
+		))
+	}
+
+	return helpStyle.Render(fmt.Sprintf("Commit Message: %s\n", wordwrap.String(m.commitMessage.String(), m.terminalSize.Width)))
 }
 
 func main() {
+	keyring.Delete("crowdlog-aicommit", "anon")
 	var rootCmd = &cobra.Command{
 		Use:   "myapp",
 		Short: "Git Commit Message Generator",
@@ -217,7 +235,7 @@ func generateCommitMessageUsingAI(gitDiff string, m *model) (openai.ChatCompleti
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleSystem,
-					Content: "This is a commit message generator with a max length of 250 characters. Use conventional commits to describe your changes. ",
+					Content: "Generate a short commit message. Use conventional commits. ",
 				},
 				{
 					Role:    openai.ChatMessageRoleUser,
@@ -244,7 +262,7 @@ func someCmd(m *model) tea.Cmd {
 
 		resp, err := generateCommitMessageUsingAI(gitDiff, m)
 		if err != nil {
-			println("Error generating commit message using AI:", err)
+			println("Error generating commit message using AI:", err.Error())
 			return nil
 		}
 		m.commitMessage.Reset()
