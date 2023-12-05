@@ -13,10 +13,16 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/wordwrap"
 	"github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
 	"github.com/zalando/go-keyring"
 )
+
+type TerminalSize struct {
+	Width  int
+	Height int
+}
 
 // Define the model struct which includes the Bubbletea model elements
 type model struct {
@@ -29,6 +35,7 @@ type model struct {
 	viewport       viewport.Model
 	spinner        spinner.Model
 	isFetching     bool
+	terminalSize   TerminalSize
 }
 
 // Implement the tea.Model interface for model
@@ -41,6 +48,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.terminalSize.Width = msg.Width
+		m.terminalSize.Height = msg.Height
+		println("width: ", m.terminalSize.Width)
+		return m, nil
 	case tea.KeyMsg:
 
 		switch msg.Type {
@@ -48,13 +60,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			println("Exiting...")
 			return m, tea.Quit
 		}
-		// if msg.String() == "c" {
-		// 	gitdiff, err := getGitDiff()
-		// 	println("getting git diff")
-		// 	if err != nil {
-		// 		println(gitdiff)
-		// 	}
-		// }
 	}
 
 	if !m.hasOpenAIKey {
@@ -82,17 +87,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyMsg:
 			switch msg.Type {
 			case tea.KeyEnter:
-				println("Generating commit message...")
-
 				cmd = someCmd(m)
 				return m, cmd
 			}
 		case tickMsg:
-			m.spinner.Update(msg)
 			m.viewport.SetContent(m.commitMessage.String())
 			m.viewport.GotoBottom()
+			return m, cmd
 		}
-
 	}
 	m.openAIKeyInput, cmd = m.openAIKeyInput.Update(msg)
 
@@ -123,6 +125,7 @@ func initialModel() model {
 			openAIKeyInput: ti,
 			hasOpenAIKey:   hasKey,
 			spinner:        s,
+			terminalSize:   TerminalSize{Width: 0, Height: 0},
 		}
 	}
 	println("secret: ", secret)
@@ -131,6 +134,7 @@ func initialModel() model {
 		hasOpenAIKey:   true,
 		openAISecret:   secret,
 		spinner:        s,
+		terminalSize:   TerminalSize{Width: 0, Height: 0},
 	}
 }
 
@@ -149,13 +153,15 @@ func (m *model) View() string {
 		) + "\n"
 	}
 
+	var helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Width(m.terminalSize.Width).Height(m.terminalSize.Height)
+
 	if m.isFetching {
 		return fmt.Sprintf(
-			"%s, %s", m.spinner.View(), m.commitMessage.String(),
+			"%s, %s", m.spinner.View(), helpStyle.Render(m.commitMessage.String()),
 		)
 	}
 
-	return fmt.Sprintf("Commit Message testing: %s\n", m.commitMessage.String())
+	return fmt.Sprintf("Commit Message: %s\n", helpStyle.Render(wordwrap.String(m.commitMessage.String(), m.terminalSize.Width)))
 }
 
 func main() {
@@ -211,7 +217,7 @@ func generateCommitMessageUsingAI(gitDiff string, m *model) (openai.ChatCompleti
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleSystem,
-					Content: "This is a commit message generator. Generate short commit messages. Use conventional commits to describe your changes. ",
+					Content: "This is a commit message generator with a max length of 250 characters. Use conventional commits to describe your changes. ",
 				},
 				{
 					Role:    openai.ChatMessageRoleUser,
@@ -256,6 +262,7 @@ func someCmd(m *model) tea.Cmd {
 			m.commitMessage.Write([]byte(resp.Choices[0].Delta.Content))
 
 		}
+
 		m.isFetching = false
 
 		return nil
