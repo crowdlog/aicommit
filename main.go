@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"os/exec"
 	"strings"
 	"time"
@@ -14,8 +13,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/wordwrap"
-	"github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
+	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/openai"
+	"github.com/tmc/langchaingo/schema"
 	"github.com/zalando/go-keyring"
 )
 
@@ -91,7 +92,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyMsg:
 			switch msg.Type {
 			case tea.KeyEnter:
-				cmd = someCmd(m)
+				cmd = runAI(m)
 				return m, cmd
 			}
 		case tickMsg:
@@ -173,16 +174,20 @@ func (m *model) View() string {
 	}
 
 	if m.commitMessage.String() == "" {
-		return helpStyle.Render(fmt.Sprintf(
+		return helpStyle.Render(
 			"Press enter to generate commit message",
-		))
+		)
 	}
 
 	return helpStyle.Render(fmt.Sprintf("Commit Message: %s\n", wordwrap.String(m.commitMessage.String(), m.terminalSize.Width)))
 }
 
 func main() {
-	keyring.Delete("crowdlog-aicommit", "anon")
+	err := downloadAndInstallSqlite()
+	if err != nil {
+		println("Error downloading and installing SQLite:", err.Error())
+		return
+	}
 	var rootCmd = &cobra.Command{
 		Use:   "myapp",
 		Short: "Git Commit Message Generator",
@@ -225,63 +230,52 @@ func getGitDiff() (string, error) {
 	return string(output), nil
 }
 
-func generateCommitMessageUsingAI(gitDiff string, m *model) (openai.ChatCompletionStream, error) {
+func generateCommitMessageUsingAI(gitDiff string, m *model) (*schema.AIChatMessage, error) {
 
-	client := openai.NewClient(m.openAISecret)
-	resp, err := client.CreateChatCompletionStream(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model: openai.GPT3Dot5Turbo,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleSystem,
-					Content: "Generate a short commit message. Use conventional commits. ",
-				},
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: gitDiff,
-				},
-			},
-		},
-	)
+	llm, err := openai.NewChat(openai.WithModel("gpt-4-1106-preview"), openai.WithToken(m.openAISecret))
 	if err != nil {
-		return openai.ChatCompletionStream{}, err
+		return nil, err
 	}
-	return *resp, err
+
+	// Create a channel to stream the responses
+	stream := make(chan []byte)
+
+	var chats = []schema.ChatMessage{
+		schema.SystemChatMessage{Content: "Generate a short commit message. Use conventional commits. "},
+		schema.HumanChatMessage{Content: gitDiff},
+	}
+	m.isFetching = true
+	completion, err := llm.Call(context.Background(), chats, llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
+		m.commitMessage.WriteString(string(chunk))
+		return nil
+	}))
+
+	if err != nil {
+		println("Error calling AI:", err.Error())
+		close(stream)
+		return nil, err
+	}
+	m.isFetching = false
+
+	return completion, nil
+
 }
 
-func someCmd(m *model) tea.Cmd {
+func runAI(m *model) tea.Cmd {
 
 	return func() tea.Msg {
 		m.isFetching = true
 		gitDiff, err := getGitDiff()
 		if err != nil {
-			println("Error getting git diff:", err)
+			println("Error getting git diff:", err.Error())
 			return nil
 		}
 
-		resp, err := generateCommitMessageUsingAI(gitDiff, m)
+		_, err = generateCommitMessageUsingAI(gitDiff, m)
 		if err != nil {
 			println("Error generating commit message using AI:", err.Error())
 			return nil
 		}
-		m.commitMessage.Reset()
-		for {
-			resp, recvErr := resp.Recv()
-			if recvErr == io.EOF {
-				// End of the stream
-				break
-			}
-			if recvErr != nil {
-				println("Error receiving response:", recvErr)
-				return nil
-			}
-
-			m.commitMessage.Write([]byte(resp.Choices[0].Delta.Content))
-
-		}
-
-		m.isFetching = false
 
 		return nil
 	}

@@ -25,6 +25,20 @@ const compile = async ({
     });
     log(buildResult.stderr.toString());
     log(buildResult.stdout.toString());
+
+    const dbGenResult = Bun.spawnSync(
+      [
+        "jet", // Command to execute
+        "-source=sqlite", // Option 1 for 'jet'
+        "-dsn=./aicommit.db", // Option 2 for 'jet', specifying the data source name
+        "-path=./.gen", // Option 3 for 'jet', specifying the output path
+      ],
+      {
+        cwd: import.meta.dir,
+      }
+    );
+    log(dbGenResult.stderr.toString());
+    log(dbGenResult.stdout.toString());
   } catch (e) {
     log(e);
   }
@@ -42,8 +56,8 @@ async function main() {
     return;
   }
 
-  const watcher = watch("**/*.{ts,go}", {
-    ignored: "(node_modules|target)/**/*",
+  const watcher = watch("**/*.{ts,go,sql}", {
+    ignored: "(node_modules|target|.gen)/**/*",
   });
   let ready = false;
 
