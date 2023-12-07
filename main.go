@@ -183,7 +183,7 @@ func (m *model) View() string {
 }
 
 func main() {
-	err := downloadAndInstallSqlite()
+	err := initSqlite()
 	if err != nil {
 		println("Error downloading and installing SQLite:", err.Error())
 		return
