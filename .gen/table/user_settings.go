@@ -17,8 +17,11 @@ type userSettingsTable struct {
 	sqlite.Table
 
 	// Columns
-	ID             sqlite.ColumnInteger
-	ModelSelection sqlite.ColumnString
+	ID                     sqlite.ColumnString
+	ModelSelection         sqlite.ColumnString
+	ExcludeFiles           sqlite.ColumnString
+	UseConventionalCommits sqlite.ColumnBool
+	DateCreated            sqlite.ColumnTimestamp
 
 	AllColumns     sqlite.ColumnList
 	MutableColumns sqlite.ColumnList
@@ -59,18 +62,24 @@ func newUserSettingsTable(schemaName, tableName, alias string) *UserSettingsTabl
 
 func newUserSettingsTableImpl(schemaName, tableName, alias string) userSettingsTable {
 	var (
-		IDColumn             = sqlite.IntegerColumn("id")
-		ModelSelectionColumn = sqlite.StringColumn("model_selection")
-		allColumns           = sqlite.ColumnList{IDColumn, ModelSelectionColumn}
-		mutableColumns       = sqlite.ColumnList{ModelSelectionColumn}
+		IDColumn                     = sqlite.StringColumn("id")
+		ModelSelectionColumn         = sqlite.StringColumn("model_selection")
+		ExcludeFilesColumn           = sqlite.StringColumn("exclude_files")
+		UseConventionalCommitsColumn = sqlite.BoolColumn("use_conventional_commits")
+		DateCreatedColumn            = sqlite.TimestampColumn("date_created")
+		allColumns                   = sqlite.ColumnList{IDColumn, ModelSelectionColumn, ExcludeFilesColumn, UseConventionalCommitsColumn, DateCreatedColumn}
+		mutableColumns               = sqlite.ColumnList{ModelSelectionColumn, ExcludeFilesColumn, UseConventionalCommitsColumn, DateCreatedColumn}
 	)
 
 	return userSettingsTable{
 		Table: sqlite.NewTable(schemaName, tableName, alias, allColumns...),
 
 		//Columns
-		ID:             IDColumn,
-		ModelSelection: ModelSelectionColumn,
+		ID:                     IDColumn,
+		ModelSelection:         ModelSelectionColumn,
+		ExcludeFiles:           ExcludeFilesColumn,
+		UseConventionalCommits: UseConventionalCommitsColumn,
+		DateCreated:            DateCreatedColumn,
 
 		AllColumns:     allColumns,
 		MutableColumns: mutableColumns,

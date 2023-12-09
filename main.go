@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/wordwrap"
+	"github.com/phuslu/log"
 	"github.com/spf13/cobra"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/openai"
@@ -74,6 +75,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch msg.Type {
 
 				case tea.KeyEnter:
+					m.commitMessage.Reset()
 					println("Saving OpenAI key...")
 					err := keyring.Set("crowdlog-aicommit", "anon", m.openAIKeyInput.Value())
 					if err != nil {
@@ -183,11 +185,20 @@ func (m *model) View() string {
 }
 
 func main() {
-	err := initSqlite()
+	initLogger()
+	log.Info().Msg("Starting up...")
+
+	cdb, err := getCommitDBFactory()
 	if err != nil {
 		println("Error downloading and installing SQLite:", err.Error())
 		return
 	}
+	settings, err := cdb.GetUserSettings()
+	if err != nil {
+		println("Error getting user settings:", err.Error())
+		return
+	}
+	println(settings.DateCreated.String())
 	var rootCmd = &cobra.Command{
 		Use:   "myapp",
 		Short: "Git Commit Message Generator",

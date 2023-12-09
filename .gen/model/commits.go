@@ -7,9 +7,15 @@
 
 package model
 
+import (
+	"time"
+)
+
 type Commits struct {
-	ID             *int32 `sql:"primary_key"`
-	GitDiff        *string
-	CommitMessage  *string
-	GitDiffCommand *string
+	ID                   *int32 `sql:"primary_key"`
+	CommitMessage        *string
+	GitDiffCommand       *string
+	GitDiffCommandOutput *string
+	ExcludeFiles         *string
+	DateCreated          *time.Time
 }

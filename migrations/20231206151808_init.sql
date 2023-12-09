@@ -2,21 +2,21 @@
 -- +goose StatementBegin
 CREATE TABLE user_settings (
     id TEXT PRIMARY KEY, 
-    model_selection TEXT
-    exclude_files TEXT
-    use_conventional_commits BOOLEAN
-    date_created TIMESTAMP,
+    model_selection TEXT,
+    exclude_files TEXT,
+    use_conventional_commits BOOLEAN,
+    date_created TIMESTAMP
 );
 
 CREATE INDEX idx_model_selection ON user_settings(model_selection);
 
 CREATE TABLE commits (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     commit_message TEXT, 
     git_diff_command TEXT,
     git_diff_command_output TEXT,
     exclude_files TEXT,
-    date_created TIMESTAMP,
+    date_created TIMESTAMP
 );
 -- +goose StatementEnd
 

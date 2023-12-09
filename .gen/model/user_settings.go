@@ -7,7 +7,14 @@
 
 package model
 
+import (
+	"time"
+)
+
 type UserSettings struct {
-	ID             *int32 `sql:"primary_key"`
-	ModelSelection *string
+	ID                     *string `sql:"primary_key"`
+	ModelSelection         *string
+	ExcludeFiles           *string
+	UseConventionalCommits *bool
+	DateCreated            *time.Time
 }

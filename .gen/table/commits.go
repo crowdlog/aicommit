@@ -17,10 +17,12 @@ type commitsTable struct {
 	sqlite.Table
 
 	// Columns
-	ID             sqlite.ColumnInteger
-	GitDiff        sqlite.ColumnString
-	CommitMessage  sqlite.ColumnString
-	GitDiffCommand sqlite.ColumnString
+	ID                   sqlite.ColumnInteger
+	CommitMessage        sqlite.ColumnString
+	GitDiffCommand       sqlite.ColumnString
+	GitDiffCommandOutput sqlite.ColumnString
+	ExcludeFiles         sqlite.ColumnString
+	DateCreated          sqlite.ColumnTimestamp
 
 	AllColumns     sqlite.ColumnList
 	MutableColumns sqlite.ColumnList
@@ -61,22 +63,26 @@ func newCommitsTable(schemaName, tableName, alias string) *CommitsTable {
 
 func newCommitsTableImpl(schemaName, tableName, alias string) commitsTable {
 	var (
-		IDColumn             = sqlite.IntegerColumn("id")
-		GitDiffColumn        = sqlite.StringColumn("git_diff")
-		CommitMessageColumn  = sqlite.StringColumn("commit_message")
-		GitDiffCommandColumn = sqlite.StringColumn("git_diff_command")
-		allColumns           = sqlite.ColumnList{IDColumn, GitDiffColumn, CommitMessageColumn, GitDiffCommandColumn}
-		mutableColumns       = sqlite.ColumnList{GitDiffColumn, CommitMessageColumn, GitDiffCommandColumn}
+		IDColumn                   = sqlite.IntegerColumn("id")
+		CommitMessageColumn        = sqlite.StringColumn("commit_message")
+		GitDiffCommandColumn       = sqlite.StringColumn("git_diff_command")
+		GitDiffCommandOutputColumn = sqlite.StringColumn("git_diff_command_output")
+		ExcludeFilesColumn         = sqlite.StringColumn("exclude_files")
+		DateCreatedColumn          = sqlite.TimestampColumn("date_created")
+		allColumns                 = sqlite.ColumnList{IDColumn, CommitMessageColumn, GitDiffCommandColumn, GitDiffCommandOutputColumn, ExcludeFilesColumn, DateCreatedColumn}
+		mutableColumns             = sqlite.ColumnList{CommitMessageColumn, GitDiffCommandColumn, GitDiffCommandOutputColumn, ExcludeFilesColumn, DateCreatedColumn}
 	)
 
 	return commitsTable{
 		Table: sqlite.NewTable(schemaName, tableName, alias, allColumns...),
 
 		//Columns
-		ID:             IDColumn,
-		GitDiff:        GitDiffColumn,
-		CommitMessage:  CommitMessageColumn,
-		GitDiffCommand: GitDiffCommandColumn,
+		ID:                   IDColumn,
+		CommitMessage:        CommitMessageColumn,
+		GitDiffCommand:       GitDiffCommandColumn,
+		GitDiffCommandOutput: GitDiffCommandOutputColumn,
+		ExcludeFiles:         ExcludeFilesColumn,
+		DateCreated:          DateCreatedColumn,
 
 		AllColumns:     allColumns,
 		MutableColumns: mutableColumns,
