@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -13,11 +14,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/wordwrap"
+	"github.com/phuslu/log"
 	"github.com/spf13/cobra"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/openai"
 	"github.com/tmc/langchaingo/schema"
 	"github.com/zalando/go-keyring"
+
+	dbmodel "aicommit/.gen/model"
 )
 
 type TerminalSize struct {
@@ -183,35 +187,35 @@ func (m *model) View() string {
 	return helpStyle.Render(fmt.Sprintf("Commit Message: %s\n", wordwrap.String(m.commitMessage.String(), m.terminalSize.Width)))
 }
 
-// func main() {
-// 	initLogger()
-// 	log.Info().Msg("Starting up...")
+func main() {
+	initLogger()
+	log.Info().Msg("Starting up...")
+	initialize := true
+	cdb, err := getCommitDBFactory(initialize)
+	if err != nil {
+		println("Error downloading and installing SQLite:", err.Error())
+		return
+	}
+	settings, err := cdb.GetUserSettings()
+	if err != nil {
+		println("Error getting user settings:", err.Error())
+		return
+	}
+	println(settings.DateCreated.String())
+	var rootCmd = &cobra.Command{
+		Use:   "myapp",
+		Short: "Git Commit Message Generator",
+	}
 
-// 	cdb, err := getCommitDBFactory()
-// 	if err != nil {
-// 		println("Error downloading and installing SQLite:", err.Error())
-// 		return
-// 	}
-// 	settings, err := cdb.GetUserSettings()
-// 	if err != nil {
-// 		println("Error getting user settings:", err.Error())
-// 		return
-// 	}
-// 	println(settings.DateCreated.String())
-// 	var rootCmd = &cobra.Command{
-// 		Use:   "myapp",
-// 		Short: "Git Commit Message Generator",
-// 	}
+	var cmdAICommit = &cobra.Command{
+		Use:   "aicommit",
+		Short: "Generate commit message using AI",
+		Run:   runTea,
+	}
 
-// 	var cmdAICommit = &cobra.Command{
-// 		Use:   "aicommit",
-// 		Short: "Generate commit message using AI",
-// 		Run:   runTea,
-// 	}
-
-// 	rootCmd.AddCommand(cmdAICommit)
-// 	rootCmd.Execute()
-// }
+	rootCmd.AddCommand(cmdAICommit)
+	rootCmd.Execute()
+}
 
 func runTea(cmd *cobra.Command, args []string) {
 	m := initialModel()
@@ -280,6 +284,39 @@ func runAI(m *model) tea.Cmd {
 			println("Error getting git diff:", err.Error())
 			return nil
 		}
+
+		dateCreated := time.Now()
+		diffStructuredJson := ""
+		model := "gpt-4-1106-preview"
+		aiProvider := "openai"
+		promptBytes, err := json.Marshal([]string{"Generate a short commit message. Use conventional commits. "})
+		if err != nil {
+			println("Error marshalling prompts:", err.Error())
+			return nil
+		}
+		prompts := string(promptBytes)
+
+		var gitDiffRow = &dbmodel.Diff{
+			Diff:               &gitDiff,
+			DateCreated:        &dateCreated,
+			DiffStructuredJSON: &diffStructuredJson,
+			Model:              &model,
+			AiProvider:         &aiProvider,
+			Prompts:            &prompts,
+		}
+		initialize := false
+		cdb, err := getCommitDBFactory(initialize)
+		if err != nil {
+			println("Error downloading and installing SQLite:", err.Error())
+			return nil
+		}
+		_, err = cdb.InsertDiff(*gitDiffRow)
+		if err != nil {
+			println("Error inserting diff:", err.Error())
+			return nil
+		}
+
+		main2()
 
 		_, err = generateCommitMessageUsingAI(gitDiff, m)
 		if err != nil {

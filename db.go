@@ -21,10 +21,12 @@ import (
 var embedMigrations embed.FS
 var dbFilePathConst = "aicommit.db"
 
-func getCommitDBFactory() (cDB *CommitDB, error error) {
-	goose.SetBaseFS(embedMigrations)
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		return nil, err
+func getCommitDBFactory(initialize bool) (cDB *CommitDB, error error) {
+	if initialize {
+		goose.SetBaseFS(embedMigrations)
+		if err := goose.SetDialect("sqlite3"); err != nil {
+			return nil, err
+		}
 	}
 
 	db, err := getDB(dbFilePathConst)
@@ -36,9 +38,10 @@ func getCommitDBFactory() (cDB *CommitDB, error error) {
 		db:         db,
 		dbFilePath: dbFilePathConst,
 	}
-
-	if err := cDB.InitDB(); err != nil {
-		return nil, err
+	if initialize {
+		if err := cDB.InitDB(); err != nil {
+			return nil, err
+		}
 	}
 
 	return cDB, nil
@@ -150,6 +153,35 @@ func (cDB *CommitDB) GetUserSettings() (dbmodel.UserSettings, error) {
 		return userSettings, err
 	}
 	return userSettings, nil
+}
+
+func (cDB *CommitDB) InsertDiff(diff dbmodel.Diff) (sql.Result, error) {
+	diffId := "diff"
+	diffStruct := dbmodel.Diff{
+		ID:                 &diffId,
+		Diff:               diff.Diff,
+		DateCreated:        diff.DateCreated,
+		DiffStructuredJSON: diff.DiffStructuredJSON,
+		Model:              diff.Model,
+		AiProvider:         diff.AiProvider,
+		Prompts:            diff.Prompts,
+	}
+	deleteStmt := table.Diff.DELETE().WHERE(table.Diff.ID.EQ(jet.String("diff")))
+	_, err := deleteStmt.Exec(cDB.db)
+	if err != nil {
+		return nil, err
+	}
+	stmt := table.Diff.INSERT(
+		table.Diff.ID,
+		table.Diff.Diff,
+		table.Diff.DateCreated,
+		table.Diff.DiffStructuredJSON,
+		table.Diff.Model,
+		table.Diff.AiProvider,
+		table.Diff.Prompts,
+	).MODEL(diffStruct)
+	return stmt.Exec(cDB.db)
+
 }
 
 // func test(db *sql.DB) {

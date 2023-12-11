@@ -4,14 +4,13 @@ import (
 	"aicommit/internal/data"
 	"aicommit/python_src"
 	"io"
-	"os"
 	"path/filepath"
 
-	"github.com/kluctl/go-embed-python/embed_util"
-	"github.com/kluctl/go-embed-python/python"
+	"github.com/michaelangeloio/go-embed-python/embed_util"
+	"github.com/michaelangeloio/go-embed-python/python"
 )
 
-func main() {
+func main2() {
 
 	ep, err := python.NewEmbeddedPython("tmp")
 	if err != nil {
@@ -31,7 +30,7 @@ func main() {
 	// diffString := loadDiffFileAsString()
 	// println(diffString)
 
-	args := []string{filepath.Join(rendererSrc.GetExtractedPath(), "main.py"), "test"}
+	args := []string{filepath.Join(rendererSrc.GetExtractedPath(), "main.py")}
 
 	cmd := ep.PythonCmd(args...)
 
@@ -40,16 +39,15 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	// stderr, err := cmd.StderrPipe()
+	// if err != nil {
+	// 	panic(err)
+	// }
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
 		panic(err)
 	}
-
-	// stderr, err := cmd.StderrPipe()
-	// if err != nil {
-	// 	panic(err)
-	// }
 
 	// // Read from the stderr pipe
 	// // Use io.ReadAll or similar to read the entire output
@@ -76,23 +74,4 @@ func main() {
 	// Convert the output to a string and use it
 	stdoutString := string(output)
 	println(stdoutString)
-}
-
-func loadDiffFileAsString() string {
-	// Load the diff file
-	diffFile, err := os.Open("diff.diff")
-	if err != nil {
-		panic(err)
-	}
-	defer diffFile.Close()
-
-	// Read the diff file
-	diff, err := io.ReadAll(diffFile)
-	if err != nil {
-		panic(err)
-	}
-
-	// Convert the diff to a string
-	diffString := string(diff)
-	return diffString
 }

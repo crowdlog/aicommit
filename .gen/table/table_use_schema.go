@@ -12,6 +12,7 @@ package table
 func UseSchema(schema string) {
 	Aicommit = Aicommit.FromSchema(schema)
 	Commits = Commits.FromSchema(schema)
+	Diff = Diff.FromSchema(schema)
 	GooseDbVersion = GooseDbVersion.FromSchema(schema)
 	UserSettings = UserSettings.FromSchema(schema)
 }
