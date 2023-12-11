@@ -13,7 +13,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/wordwrap"
-	"github.com/phuslu/log"
 	"github.com/spf13/cobra"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/openai"
@@ -184,35 +183,35 @@ func (m *model) View() string {
 	return helpStyle.Render(fmt.Sprintf("Commit Message: %s\n", wordwrap.String(m.commitMessage.String(), m.terminalSize.Width)))
 }
 
-func main() {
-	initLogger()
-	log.Info().Msg("Starting up...")
+// func main() {
+// 	initLogger()
+// 	log.Info().Msg("Starting up...")
 
-	cdb, err := getCommitDBFactory()
-	if err != nil {
-		println("Error downloading and installing SQLite:", err.Error())
-		return
-	}
-	settings, err := cdb.GetUserSettings()
-	if err != nil {
-		println("Error getting user settings:", err.Error())
-		return
-	}
-	println(settings.DateCreated.String())
-	var rootCmd = &cobra.Command{
-		Use:   "myapp",
-		Short: "Git Commit Message Generator",
-	}
+// 	cdb, err := getCommitDBFactory()
+// 	if err != nil {
+// 		println("Error downloading and installing SQLite:", err.Error())
+// 		return
+// 	}
+// 	settings, err := cdb.GetUserSettings()
+// 	if err != nil {
+// 		println("Error getting user settings:", err.Error())
+// 		return
+// 	}
+// 	println(settings.DateCreated.String())
+// 	var rootCmd = &cobra.Command{
+// 		Use:   "myapp",
+// 		Short: "Git Commit Message Generator",
+// 	}
 
-	var cmdAICommit = &cobra.Command{
-		Use:   "aicommit",
-		Short: "Generate commit message using AI",
-		Run:   runTea,
-	}
+// 	var cmdAICommit = &cobra.Command{
+// 		Use:   "aicommit",
+// 		Short: "Generate commit message using AI",
+// 		Run:   runTea,
+// 	}
 
-	rootCmd.AddCommand(cmdAICommit)
-	rootCmd.Execute()
-}
+// 	rootCmd.AddCommand(cmdAICommit)
+// 	rootCmd.Execute()
+// }
 
 func runTea(cmd *cobra.Command, args []string) {
 	m := initialModel()

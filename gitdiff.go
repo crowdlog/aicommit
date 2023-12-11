@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"strings"
 )
 
@@ -54,34 +53,43 @@ func SplitGitDiff(diff string, length int) [][]Chunk {
 	return chunks
 }
 
-func main() {
-	// Example usage
-	diff := `diff --git a/file1.txt b/file1.txt
-index 1234567..89abcde 100644
---- a/file1.txt
-+++ b/file1.txt
-@@ -1,3 +1,3 @@
--Hello
-+Hello, World
- Bye
-diff --git a/file2.txt b/file2.txt
-index 2345678..9abcdef 100644
---- a/file2.txt
-+++ b/file2.txt
-@@ -1,3 +1,3 @@
--Goodbye
-+Goodbye, World
- Hello`
+// func main() {
+// 	// Example usage
+// 	diff := `diff --git a/file1.txt b/file1.txt
+// index 1234567..89abcde 100644
+// --- a/file1.txt
+// +++ b/file1.txt
+// @@ -1,3 +1,3 @@
+// -Hello
+// +Hello, World, 2, 100
+//  Bye
+// diff --git a/file2.txt b/file2.txt
+// index 2345678..9abcdef 100644
+// --- a/file2.txt
+// +++ b/file2.txt
+// @@ -1,3 +1,3 @@
+// -Goodbye
+// +Goodbye, World
+//  Hello`
+// 	diffTimesX := strings.Repeat(diff, 1000) // 1000 times the diff
 
-	chunks := SplitGitDiff(diff, 10) // Splitting the diff into chunks of 10 lines
+// 	chunks := SplitGitDiff(diffTimesX, 10) // Splitting the diff into chunks of 10 lines
 
-	for _, chunk := range chunks {
-		for _, subChunk := range chunk {
-			fmt.Println("Chunk:")
-			for _, line := range subChunk.Lines {
-				fmt.Println(line)
-			}
-			fmt.Println()
-		}
-	}
-}
+// 	for _, chunk := range chunks {
+// 		for _, subChunk := range chunk {
+// 			fmt.Println("Chunk:")
+// 			for _, line := range subChunk.Lines {
+// 				fmt.Println(line)
+// 			}
+// 			fmt.Println()
+// 		}
+// 	}
+
+// 	tkm, err := tiktoken.GetEncoding("cl100k_base")
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	token := tkm.Encode(diffTimesX, nil, nil)
+// 	fmt.Println(len(token), "tokens")
+
+// }
