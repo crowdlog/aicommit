@@ -46,6 +46,21 @@ func main() {
 		panic(err)
 	}
 
+	// stderr, err := cmd.StderrPipe()
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	// // Read from the stderr pipe
+	// // Use io.ReadAll or similar to read the entire output
+	// stderrOutput, err := io.ReadAll(stderr)
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	// stderrString := string(stderrOutput)
+	// println(stderrString)
+
 	// Read from the stdout pipe
 	// Use io.ReadAll or similar to read the entire output
 	output, err := io.ReadAll(stdout)

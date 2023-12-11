@@ -56,7 +56,7 @@ async function main() {
     return;
   }
 
-  const watcher = watch("**/*.{ts,go,sql}", {
+  const watcher = watch("**/*.{ts,go,sql,py}", {
     ignored: "(node_modules|target|.gen)/**/*",
   });
   let ready = false;
