@@ -32,13 +32,11 @@ func initLogger() {
 
 func getLogLevel() log.Level {
 	logLevel := os.Getenv("LOG_LEVEL")
-	println("LOG_LEVEL is " + logLevel)
 	if logLevel == "" {
 		return log.InfoLevel
 	}
 	intLevel, err := strconv.Atoi(logLevel)
 	if err != nil {
-		println("LOG_LEVEL is not a number")
 		return log.InfoLevel
 	}
 	return log.Level(intLevel)

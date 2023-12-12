@@ -1,21 +1,19 @@
 package main
 
+// A simple example that shows how to send activity to Bubble Tea in real-time
+// through a channel.
+
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/reflow/wordwrap"
-	"github.com/phuslu/log"
-	"github.com/spf13/cobra"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/openai"
 	"github.com/tmc/langchaingo/schema"
@@ -24,261 +22,149 @@ import (
 	dbmodel "aicommit/.gen/model"
 )
 
-type TerminalSize struct {
-	Width  int
-	Height int
-}
+var (
+	mainContentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
+)
 
-// Define the model struct which includes the Bubbletea model elements
+type ScreenView int
+
+const (
+	SetupView         ScreenView = 0 // 0
+	CommitMessageView ScreenView = 1 // null, \0
+)
+
 type model struct {
-	ready          bool
-	openAIKeyInput textinput.Model
-	openAISecret   string
-	commitMessage  strings.Builder
-	errMsg         error
-	hasOpenAIKey   bool
-	viewport       viewport.Model
-	spinner        spinner.Model
-	isFetching     bool
-	terminalSize   TerminalSize
-}
+	quitting     bool
+	openAISecret string
 
-// Implement the tea.Model interface for model
-func (m *model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, m.spinner.Tick)
-}
+	view ScreenView
 
-func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.ready = false
-		var prevContent = m.viewport.View()
-		m.viewport.SetContent("")
-		m.terminalSize.Width = msg.Width
-		m.terminalSize.Height = msg.Height
-		m.viewport.SetContent(prevContent)
-		m.ready = true
-		return m, nil
-	case tea.KeyMsg:
-
-		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
-			println("Exiting...")
-			return m, tea.Quit
-		}
+	genMessageState struct {
+		sub           chan string // where we'll receive activity notifications
+		responses     int         // how many responses we've received
+		loading       bool
+		spinner       spinner.Model
+		commitMessage *strings.Builder
 	}
 
-	if !m.hasOpenAIKey {
-		if m.openAIKeyInput.Value() != "" {
-			switch msg := msg.(type) {
+	terminalWidth  int
+	terminalHeight int
+}
 
-			case tea.KeyMsg:
-				switch msg.Type {
+func (m model) Init() tea.Cmd {
+	return tea.Batch(
+		waitForActivity(m.genMessageState.sub), // wait for activity
+	)
+}
 
-				case tea.KeyEnter:
-					m.commitMessage.Reset()
-					println("Saving OpenAI key...")
-					err := keyring.Set("crowdlog-aicommit", "anon", m.openAIKeyInput.Value())
-					if err != nil {
-						println("Error saving OpenAI key:", err)
-					}
-					m.openAISecret = m.openAIKeyInput.Value()
-					m.hasOpenAIKey = true
-					return m, cmd
-				}
-			}
-		}
-	}
-
-	if m.hasOpenAIKey {
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.view == CommitMessageView {
 		switch msg := msg.(type) {
+		case tea.WindowSizeMsg:
+			m.terminalWidth = msg.Width
+			m.terminalHeight = msg.Height
+			return m, nil
 		case tea.KeyMsg:
-			switch msg.Type {
-			case tea.KeyEnter:
-				cmd = runAI(m)
-				return m, cmd
+			switch msg.String() {
+			case "q", "esc", "ctrl+c":
+				m.quitting = true
+				return m, tea.Quit
+			case "enter":
+				m.genMessageState.responses = 0
+				m.genMessageState.loading = true
+				m.genMessageState.commitMessage.Reset()
+				return m, tea.Batch(runAI2(&m), m.genMessageState.spinner.Tick, tea.ClearScreen)
+			default:
+				return m, nil
 			}
-		case tickMsg:
-			m.viewport.SetContent(m.commitMessage.String())
-			m.viewport.GotoBottom()
-			return m, cmd
+		case responseMsg:
+			m.genMessageState.responses++                                   // record external activity
+			m.genMessageState.commitMessage.WriteString(msg.messageContent) // update the model
+			return m, waitForActivity(m.genMessageState.sub)                // wait for next event
+		case spinner.TickMsg:
+			var genMessageSpinnerCmd tea.Cmd
+			if m.genMessageState.loading {
+				m.genMessageState.spinner, genMessageSpinnerCmd = m.genMessageState.spinner.Update(msg)
+			}
+			return m, tea.Batch(genMessageSpinnerCmd)
+		case genMsg:
+			if msg.msgType == "Done" {
+				m.genMessageState.loading = false
+				m.genMessageState.commitMessage.Reset()
+				m.genMessageState.commitMessage.WriteString(msg.Content)
+				return m, nil
+			}
+			return m, nil
+		default:
+			return m, nil
 		}
 	}
-	var openAIKeyInputCmd tea.Cmd
-	var spinnerCmd tea.Cmd
-	m.openAIKeyInput, openAIKeyInputCmd = m.openAIKeyInput.Update(msg)
-	m.spinner, spinnerCmd = m.spinner.Update(msg)
-	cmd = tea.Batch(openAIKeyInputCmd, spinnerCmd)
-
-	return m, cmd
+	return m, nil
 }
 
-type tickMsg time.Time
-
-func initialModel() model {
-	ti := textinput.New()
-	ti.Placeholder = "sk-..."
-	ti.Focus()
-	ti.CharLimit = 156
-	ti.Width = 20
-	service := "crowdlog-aicommit"
-	user := "anon"
-
-	var hasKey = false
-
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("69"))
-	secret, err := keyring.Get(service, user)
-	if err != nil {
-		hasKey = false
-		return model{
-			openAIKeyInput: ti,
-			hasOpenAIKey:   hasKey,
-			spinner:        s,
-			terminalSize:   TerminalSize{Width: 0, Height: 0},
-			ready:          false,
-		}
+func (m model) View() string {
+	commitMessage := m.genMessageState.commitMessage.String()
+	s := mainContentStyle.Width(m.terminalWidth).Render(fmt.Sprintf("\n %s Events received: %d\n\n Press any key to exit\n %s", m.genMessageState.spinner.View(), m.genMessageState.responses, commitMessage))
+	if m.quitting {
+		s += "\n"
 	}
-	return model{
-		openAIKeyInput: ti,
-		hasOpenAIKey:   true,
-		openAISecret:   secret,
-		spinner:        s,
-		terminalSize:   TerminalSize{Width: 0, Height: 0},
-		ready:          false,
-	}
-}
-
-func (m *model) View() string {
-
-	if !m.ready {
-		return "Initializing..."
-	}
-	// Implement the logic to render the view based on the model state
-	if m.errMsg != nil {
-		return fmt.Sprintf("Error: %s", m.errMsg.Error())
-	}
-
-	if !m.hasOpenAIKey {
-		return fmt.Sprintf(
-			"No OpenAI key detected. Please enter it below:\n\n%s\n\n%s",
-			m.openAIKeyInput.View(),
-			"(esc to quit)",
-		) + "\n"
-	}
-
-	var helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Width(m.terminalSize.Width)
-
-	if m.isFetching {
-		return helpStyle.Render(fmt.Sprintf(
-			"%s | %s", m.spinner.View(), m.commitMessage.String(),
-		))
-	}
-
-	if m.commitMessage.String() == "" {
-		return helpStyle.Render(
-			"Press enter to generate commit message",
-		)
-	}
-
-	return helpStyle.Render(fmt.Sprintf("Commit Message: %s\n", wordwrap.String(m.commitMessage.String(), m.terminalSize.Width)))
+	return s
 }
 
 func main() {
-	initLogger()
-	log.Info().Msg("Starting up...")
-	initialize := true
-	cdb, err := getCommitDBFactory(initialize)
+	secret, err := keyring.Get("crowdlog-aicommit", "anon")
 	if err != nil {
-		println("Error downloading and installing SQLite:", err.Error())
-		return
+		println("Error getting OpenAI key:", err)
 	}
-	_, err = cdb.GetUserSettings()
-	if err != nil {
-		println("Error getting user settings:", err.Error())
-		return
-	}
-	var rootCmd = &cobra.Command{
-		Use:   "myapp",
-		Short: "Git Commit Message Generator",
-	}
+	p := tea.NewProgram(model{
 
-	var cmdAICommit = &cobra.Command{
-		Use:   "aicommit",
-		Short: "Generate commit message using AI",
-		Run:   runTea,
-	}
+		genMessageState: struct {
+			sub           chan string
+			responses     int
+			loading       bool
+			spinner       spinner.Model
+			commitMessage *strings.Builder
+		}{
+			sub:           make(chan string),
+			responses:     0,
+			loading:       false,
+			spinner:       spinner.New(),
+			commitMessage: &strings.Builder{},
+		},
+		view:         CommitMessageView,
+		openAISecret: secret,
+	})
 
-	rootCmd.AddCommand(cmdAICommit)
-	rootCmd.Execute()
-}
-
-func runTea(cmd *cobra.Command, args []string) {
-	m := initialModel()
-	p := tea.NewProgram(&m)
-	go func() {
-		for c := range time.Tick(20 * time.Millisecond) {
-			if m.commitMessage.String() != "" {
-				return
-			}
-			p.Send(tickMsg(c))
-		}
-	}()
 	if _, err := p.Run(); err != nil {
-		fmt.Println("Error running program:", err)
-		return
+		fmt.Println("could not start program:", err)
+		os.Exit(1)
 	}
-
 }
 
-func getGitDiff() (string, error) {
-	cmd := exec.Command("git", "diff", "head")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return string(output), nil
+// ---------------- Commit Message Generation ----------------
+
+// A message used to indicate that activity has occurred. In the real world (for
+// example, chat) this would contain actual data.
+type responseMsg struct {
+	messageContent string
 }
 
-func generateCommitMessageUsingAI(gitDiff string, m *model) (*schema.AIChatMessage, error) {
-
-	llm, err := openai.NewChat(openai.WithModel("gpt-4-1106-preview"), openai.WithToken(m.openAISecret))
-	if err != nil {
-		return nil, err
+// A command that waits for the activity on a channel.
+func waitForActivity(stream chan string) tea.Cmd {
+	return func() tea.Msg {
+		content := <-stream
+		return responseMsg{messageContent: content}
 	}
-
-	// Create a channel to stream the responses
-	stream := make(chan []byte)
-
-	var chats = []schema.ChatMessage{
-		schema.SystemChatMessage{Content: "Generate a short commit message. Use conventional commits. "},
-		schema.HumanChatMessage{Content: gitDiff},
-	}
-	m.isFetching = true
-	completion, err := llm.Call(context.Background(), chats, llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
-		m.commitMessage.WriteString(string(chunk))
-		return nil
-	}))
-
-	if err != nil {
-		println("Error calling AI:", err.Error())
-		close(stream)
-		return nil, err
-	}
-	m.isFetching = false
-
-	return completion, nil
-
 }
 
-func runAI(m *model) tea.Cmd {
+type genMsg struct {
+	Content string
+	msgType string
+}
+
+func runAI2(m *model) tea.Cmd {
 
 	return func() tea.Msg {
-		m.isFetching = true
-		m.commitMessage.Reset()
 		gitDiff, err := getGitDiff()
 		if err != nil {
 			println("Error getting git diff:", err.Error())
@@ -289,7 +175,7 @@ func runAI(m *model) tea.Cmd {
 		diffStructuredJson := ""
 		model := "gpt-4-1106-preview"
 		aiProvider := "openai"
-		promptBytes, err := json.Marshal([]string{"Generate a short commit message. Use conventional commits. "})
+		promptBytes, err := json.Marshal([]string{"Generate a short commit message."})
 		if err != nil {
 			println("Error marshalling prompts:", err.Error())
 			return nil
@@ -328,12 +214,39 @@ func runAI(m *model) tea.Cmd {
 			println("Error getting structured diff:", err.Error())
 		}
 
-		_, err = generateCommitMessageUsingAI(gitDiff, m)
+		content, err := genMessage(gitDiff, m)
 		if err != nil {
 			println("Error generating commit message using AI:", err.Error())
 			return nil
 		}
-
-		return nil
+		return genMsg{
+			Content: content.Content,
+			msgType: "Done",
+		}
 	}
+}
+
+func genMessage(gitDiff string, m *model) (*schema.AIChatMessage, error) {
+
+	llm, err := openai.NewChat(openai.WithModel("gpt-3.5-turbo-1106"), openai.WithToken(m.openAISecret))
+	if err != nil {
+		return nil, err
+	}
+
+	var chats = []schema.ChatMessage{
+		schema.SystemChatMessage{Content: "Generate a short commit message. "},
+		schema.HumanChatMessage{Content: gitDiff},
+	}
+	completion, err := llm.Call(context.Background(), chats, llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
+		m.genMessageState.sub <- string(chunk)
+		return nil
+	}))
+
+	if err != nil {
+		println("Error calling AI:", err.Error())
+		return nil, err
+	}
+
+	return completion, nil
+
 }
