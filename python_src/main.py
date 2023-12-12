@@ -1,14 +1,11 @@
 import json
-import sys
-import os
-
 import tiktoken
 from concurrent.futures import ThreadPoolExecutor
 import re
 
 from typing import List, TypedDict, cast
 import sqlite3
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class FileDiff(TypedDict, total=False):
     token_count: int
@@ -36,7 +33,6 @@ openai_models = {
     "text-davinci-002": 4096,
     "code-davinci-002": 8001,
 }
-
 
 def main():
     try:
@@ -67,8 +63,12 @@ def main():
         else:
             row_dict = {}
 
-        
-        test = split_gitdiff_by_token_limit(row_dict['diff'], openai_models[row_dict['model']])
+        split_gitdiff_args = SplitGitDiffArgs(
+            diff_string=row_dict['diff'],
+            model=row_dict['model'],
+            prompts=row_dict['prompts']
+        )
+        test = split_gitdiff(split_gitdiff_args)
         json_str = json.dumps(test, indent=4)
 
         update_query = "UPDATE diff SET diff_structured_json = ? WHERE id = 'diff'"
@@ -186,19 +186,48 @@ def split_large_file_diff(file_diff: FileDiff, token_limit, encoder) -> List[Fil
 
     return chunks
 
+class SplitGitDiffArgs(TypedDict):
+    diff_string: str
+    model: str
+    prompts: List[str]
 
-def split_gitdiff_by_token_limit(diff_string: str, token_limit: int):
+def split_gitdiff(args: SplitGitDiffArgs):
     # Get the encoding
-    enc = tiktoken.get_encoding("cl100k_base")
+    enc = tiktoken.encoding_for_model(args['model'])
 
     # Split the diff string into separate file diffs
-    file_diffs = get_file_diffs(diff_string)
+    file_diffs = get_file_diffs(args['diff_string'])
 
-    # Parallel processing to count tokens
     with ThreadPoolExecutor() as executor:
-        file_diffs_with_token_counts = list(
-            executor.map(lambda fd: count_tokens_for_file_diff(fd, enc), file_diffs)
-        )
+        # Schedule tasks for count_tokens_for_file_diff
+        future_to_file_diff = {executor.submit(count_tokens_for_file_diff, fd, enc): fd for fd in file_diffs}
+        
+        # Schedule tasks for count_tokens_on_string for each prompt
+        future_to_prompt = {executor.submit(count_tokens_on_string, prompt, enc): prompt for prompt in args['prompts']}
+
+        # Prepare to store results
+        prompts_token_counts = []
+        file_diffs_with_token_counts = []
+
+        # Gather all future objects
+        all_futures = list(future_to_file_diff.keys()) + list(future_to_prompt.keys())
+
+        # Process results as they complete
+        for future in as_completed(all_futures):
+            try:
+                result = future.result()
+                if future in future_to_file_diff:
+                    # This result is from count_tokens_for_file_diff
+                    file_diffs_with_token_counts.append(result)
+                elif future in future_to_prompt:
+                    # This result is from count_tokens_on_string
+                    prompts_token_counts.append(result)
+            except Exception as e:
+                # Handle exceptions
+                print(f"An error occurred: {e}")
+
+    token_limit = openai_models[args['model']] - sum(prompts_token_counts)
+
     # Initialize variables
     result_groups: List[List[FileDiff]] = []
     current_group: List[FileDiff] = []

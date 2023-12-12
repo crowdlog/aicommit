@@ -196,12 +196,11 @@ func main() {
 		println("Error downloading and installing SQLite:", err.Error())
 		return
 	}
-	settings, err := cdb.GetUserSettings()
+	_, err = cdb.GetUserSettings()
 	if err != nil {
 		println("Error getting user settings:", err.Error())
 		return
 	}
-	println(settings.DateCreated.String())
 	var rootCmd = &cobra.Command{
 		Use:   "myapp",
 		Short: "Git Commit Message Generator",
@@ -279,6 +278,7 @@ func runAI(m *model) tea.Cmd {
 
 	return func() tea.Msg {
 		m.isFetching = true
+		m.commitMessage.Reset()
 		gitDiff, err := getGitDiff()
 		if err != nil {
 			println("Error getting git diff:", err.Error())
@@ -317,6 +317,16 @@ func runAI(m *model) tea.Cmd {
 		}
 
 		main2()
+
+		structuredDiff, err := cdb.GetDiff()
+		if err != nil {
+			println("Error getting git diff:", err.Error())
+			return nil
+		}
+
+		if structuredDiff.DiffStructuredJSON == nil {
+			println("Error getting structured diff:", err.Error())
+		}
 
 		_, err = generateCommitMessageUsingAI(gitDiff, m)
 		if err != nil {

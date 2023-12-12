@@ -181,7 +181,24 @@ func (cDB *CommitDB) InsertDiff(diff dbmodel.Diff) (sql.Result, error) {
 		table.Diff.Prompts,
 	).MODEL(diffStruct)
 	return stmt.Exec(cDB.db)
+}
 
+func (cDB *CommitDB) GetDiff() (dbmodel.Diff, error) {
+	var diff dbmodel.Diff
+	stmt := table.Diff.SELECT(
+		table.Diff.ID,
+		table.Diff.Diff,
+		table.Diff.DateCreated,
+		table.Diff.DiffStructuredJSON,
+		table.Diff.Model,
+		table.Diff.AiProvider,
+		table.Diff.Prompts,
+	).FROM(table.Diff).WHERE(table.Diff.ID.EQ(jet.String("diff")))
+	err := stmt.Query(cDB.db, &diff)
+	if err != nil {
+		return diff, err
+	}
+	return diff, nil
 }
 
 // func test(db *sql.DB) {
