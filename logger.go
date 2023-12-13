@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"strconv"
 
 	"github.com/phuslu/log"
 )
@@ -32,12 +31,8 @@ func initLogger() {
 
 func getLogLevel() log.Level {
 	logLevel := os.Getenv("LOG_LEVEL")
-	if logLevel == "" {
-		return log.InfoLevel
+	if logLevel == "debug" {
+		return log.DebugLevel
 	}
-	intLevel, err := strconv.Atoi(logLevel)
-	if err != nil {
-		return log.InfoLevel
-	}
-	return log.Level(intLevel)
+	return log.InfoLevel
 }

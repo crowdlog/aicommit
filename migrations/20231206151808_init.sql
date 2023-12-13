@@ -2,7 +2,8 @@
 -- +goose StatementBegin
 CREATE TABLE
   user_settings (
-    id TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ai_provider TEXT,
     model_selection TEXT,
     exclude_files TEXT,
     use_conventional_commits BOOLEAN,

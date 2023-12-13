@@ -17,7 +17,8 @@ type userSettingsTable struct {
 	sqlite.Table
 
 	// Columns
-	ID                     sqlite.ColumnString
+	ID                     sqlite.ColumnInteger
+	AiProvider             sqlite.ColumnString
 	ModelSelection         sqlite.ColumnString
 	ExcludeFiles           sqlite.ColumnString
 	UseConventionalCommits sqlite.ColumnBool
@@ -62,13 +63,14 @@ func newUserSettingsTable(schemaName, tableName, alias string) *UserSettingsTabl
 
 func newUserSettingsTableImpl(schemaName, tableName, alias string) userSettingsTable {
 	var (
-		IDColumn                     = sqlite.StringColumn("id")
+		IDColumn                     = sqlite.IntegerColumn("id")
+		AiProviderColumn             = sqlite.StringColumn("ai_provider")
 		ModelSelectionColumn         = sqlite.StringColumn("model_selection")
 		ExcludeFilesColumn           = sqlite.StringColumn("exclude_files")
 		UseConventionalCommitsColumn = sqlite.BoolColumn("use_conventional_commits")
 		DateCreatedColumn            = sqlite.TimestampColumn("date_created")
-		allColumns                   = sqlite.ColumnList{IDColumn, ModelSelectionColumn, ExcludeFilesColumn, UseConventionalCommitsColumn, DateCreatedColumn}
-		mutableColumns               = sqlite.ColumnList{ModelSelectionColumn, ExcludeFilesColumn, UseConventionalCommitsColumn, DateCreatedColumn}
+		allColumns                   = sqlite.ColumnList{IDColumn, AiProviderColumn, ModelSelectionColumn, ExcludeFilesColumn, UseConventionalCommitsColumn, DateCreatedColumn}
+		mutableColumns               = sqlite.ColumnList{AiProviderColumn, ModelSelectionColumn, ExcludeFilesColumn, UseConventionalCommitsColumn, DateCreatedColumn}
 	)
 
 	return userSettingsTable{
@@ -76,6 +78,7 @@ func newUserSettingsTableImpl(schemaName, tableName, alias string) userSettingsT
 
 		//Columns
 		ID:                     IDColumn,
+		AiProvider:             AiProviderColumn,
 		ModelSelection:         ModelSelectionColumn,
 		ExcludeFiles:           ExcludeFilesColumn,
 		UseConventionalCommits: UseConventionalCommitsColumn,

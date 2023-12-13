@@ -117,13 +117,11 @@ func (cDB *CommitDB) InitDB() error {
 }
 
 func (cDB *CommitDB) InitializeUserSettings() (sql.Result, error) {
-	id := "user_settings"
 	modelSelection := ""
 	excludeFiles := ""
 	useConventionalCommits := false
 	dateCreated := time.Now()
 	initialSettingsStruct := dbmodel.UserSettings{
-		ID:                     &id,
 		ModelSelection:         &modelSelection,
 		ExcludeFiles:           &excludeFiles,
 		UseConventionalCommits: &useConventionalCommits,
@@ -147,12 +145,52 @@ func (cDB *CommitDB) GetUserSettings() (dbmodel.UserSettings, error) {
 		table.UserSettings.ExcludeFiles,
 		table.UserSettings.UseConventionalCommits,
 		table.UserSettings.DateCreated,
-	).FROM(table.UserSettings).WHERE(table.UserSettings.ID.EQ(jet.String("user_settings")))
+		table.UserSettings.AiProvider,
+	).FROM(table.UserSettings).ORDER_BY(table.UserSettings.ID.DESC()).LIMIT(1)
 	err := stmt.Query(cDB.db, &userSettings)
 	if err != nil {
 		return userSettings, err
 	}
 	return userSettings, nil
+}
+
+func (cDB *CommitDB) UpdateUserSettings(userSettings dbmodel.UserSettings) (sql.Result, error) {
+
+	existingUserSettings, err := cDB.GetUserSettings()
+	if err != nil {
+		return nil, err
+	}
+
+	combinedSettings := dbmodel.UserSettings{
+		ID:                     existingUserSettings.ID,
+		ModelSelection:         existingUserSettings.ModelSelection,
+		ExcludeFiles:           existingUserSettings.ExcludeFiles,
+		UseConventionalCommits: existingUserSettings.UseConventionalCommits,
+		DateCreated:            existingUserSettings.DateCreated,
+		AiProvider:             existingUserSettings.AiProvider,
+	}
+	// combine existing and new settings
+	if userSettings.ModelSelection != nil {
+		combinedSettings.ModelSelection = userSettings.ModelSelection
+	}
+	if userSettings.ExcludeFiles != nil {
+		combinedSettings.ExcludeFiles = userSettings.ExcludeFiles
+	}
+	if userSettings.UseConventionalCommits != nil {
+		combinedSettings.UseConventionalCommits = userSettings.UseConventionalCommits
+	}
+	if userSettings.AiProvider != nil {
+		combinedSettings.AiProvider = userSettings.AiProvider
+	}
+
+	stmt := table.UserSettings.INSERT(
+		table.UserSettings.ModelSelection,
+		table.UserSettings.ExcludeFiles,
+		table.UserSettings.UseConventionalCommits,
+		table.UserSettings.DateCreated,
+		table.UserSettings.AiProvider,
+	).MODEL(combinedSettings)
+	return stmt.Exec(cDB.db)
 }
 
 func (cDB *CommitDB) InsertDiff(diff dbmodel.Diff) (sql.Result, error) {

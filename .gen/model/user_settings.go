@@ -12,7 +12,8 @@ import (
 )
 
 type UserSettings struct {
-	ID                     *string `sql:"primary_key"`
+	ID                     *int32 `sql:"primary_key"`
+	AiProvider             *string
 	ModelSelection         *string
 	ExcludeFiles           *string
 	UseConventionalCommits *bool
